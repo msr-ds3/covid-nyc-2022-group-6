@@ -1,0 +1,108 @@
+
+---
+title: "Wekk 4"
+author: "Abhishek Pokharel and Alexandra Roffe"
+date: '6/23/2022'
+---
+
+Uninsured age 18 to 64 median:
+```{r pressure, echo=FALSE}
+library(tidycensus)
+options(tigris_use_cache = TRUE)
+
+pop_uninsured <- get_acs(geography = "zcta",
+  variables = c(total_18to34_uninsured = 'B27010_018',
+  total_35to64_uninsured = 'B27010_034',
+  pop_uninsured_18to34 ='B27010_033',
+  pop_uninsured_35to64 ='B27010_050'),
+  state = 'NY',
+  year = 2016,
+  geometry = TRUE)
+
+pop_uninsured<- pop_uninsured %>% merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+  
+pop_uninsured <- pop_uninsured %>%
+  mutate(uninsured_age_bounds = (estimate_pop_uninsured_35to64 + estimate_pop_uninsured_18to34))%>%
+  mutate(uninsured_total = (estimate_total_18to34_uninsured + estimate_total_35to64_uninsured))%>%
+  mutate(proportion = (uninsured_age_bounds/uninsured_total))%>%
+  summarize(GEOID, Borough, geometry, uninsured_age_bounds, uninsured_total, proportion)
+
+median(pop_uninsured$proportion, na.rm = TRUE)
+```
+
+Median Income
+
+```{r}
+med_income <- get_acs(geography = "zcta",
+  variables = 
+    c(med_income = 'B19013_001'),
+    state = 'NY',
+    year = 2016,
+    geometry = TRUE) %>%
+  merge(zip_codes, med_income, by = "GEOID")
+mean(med_income$estimate, na.rm = TRUE)
+```
+
+```{r}
+pop_white <- get_acs(geography = "zcta",
+  variables = c(total_race_pop = 'B02001_001',
+  prop_white = 'B02001_002'),
+  state = 'NY',
+  year = 2016,
+  geometry = TRUE)
+
+pop_white <- pop_white %>%
+  merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+
+
+pop_white <- pop_white %>%
+  mutate(white_pop_prop = estimate_prop_white/estimate_total_race_pop )%>%
+  summarize(GEOID, Borough, geometry, estimate_prop_white, estimate_total_race_pop, white_pop_prop)
+mean(pop_white$white_pop_prop, na.rm = TRUE)
+```
+
+Household four or more proportion
+
+```{r}
+pop_household <- get_acs(geography = "zcta",
+  variables = c(pop_household_size = 'B11016_001',
+  pop_hsh_above_three_4 = 'B11016_005',
+  pop_hsh_above_three_5 ='B11016_006',
+  pop_hsh_above_three_6 ='B11016_007',
+  pop_hsh_above_three_7 ='B11016_008'),
+  state = 'NY',
+  year = 2016,
+  geometry = TRUE)
+
+pop_household <- pop_household %>%
+  merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+
+pop_household <- pop_household %>%
+  mutate(total_household_above_three = estimate_pop_hsh_above_three_4+estimate_pop_hsh_above_three_5+estimate_pop_hsh_above_three_6+estimate_pop_hsh_above_three_7)%>%
+  mutate(proportion = total_household_above_three/estimate_pop_household_size)%>%
+  summarize(GEOID, Borough, geometry, total_household_above_three, estimate_pop_household_size, proportion)
+
+median(pop_household$proportion, na.rm = TRUE)
+```
+
+Used bus as public transportation
+
+```{r}
+public_transportation <- get_acs(geography = "zcta",
+  variables = c(pop_transportation = 'B08301_001',
+  pop_trans_bus = 'B08301_011'),
+  state = 'NY',
+  year = 2016,
+  geometry = TRUE)
+
+public_transportation <- public_transportation %>%
+  merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+
+public_transportation <- public_transportation %>%
+  mutate(proportion = estimate_pop_trans_bus/estimate_pop_transportation)
+median(public_transportation$proportion, na.rm=TRUE)
+```
