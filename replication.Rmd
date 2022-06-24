@@ -1,0 +1,546 @@
+---
+title: "ACS_data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading the essential libraries for the replication. 
+
+```{r cars}
+library(tidyverse)
+library(tidycensus)
+library(tigris)
+options(tigris_use_cache = TRUE)
+#install.packages("sf")
+library(sf)
+library(dplyr)
+library(lubridate)
+```
+
+User may sign up in the given link in the readme.md file and use the following command to load the ACS data. 
+census_api_key("<API_KEY>", install = TRUE)
+
+```{R}
+readRenviron("~/.Renviron")
+```
+
+Getting the Zip Codes for New York City region. 
+
+```{r}
+zip_codes <- read_csv("https://raw.githubusercontent.com/erikgregorywebb/nyc-housing/master/Data/nyc-zip-codes.csv")
+  colnames(zip_codes)[which(names(zip_codes)== "ZipCode")] <- "GEOID"
+
+```
+
+Getting the APRIL 01 test and positivity data 
+
+```{r}
+april_01 <- read_csv("https://raw.githubusercontent.com/nychealth/coronavirus-data/097cbd70aa00eb635b17b177bc4546b2fce21895/tests-by-zcta.csv")
+colnames(april_01)[which(names(april_01)== "MODZCTA")] <- "GEOID"
+
+colnames(april_01)[which(names(april_01)== "Total")] <- "total_tests"
+
+ april_01 <- april_01%>%
+   mutate(positivity_prop = Positive/total_tests)
+
+```
+
+FIGURE 1 
+
+Getting the uninsured population aged 18-64
+
+```{r pressure, echo=FALSE}
+
+options(tigris_use_cache = TRUE)
+
+
+pop_uninsured <- get_acs(geography = "zcta",
+                 variables = c(total_18to34_uninsured = 'B27010_018',
+                               total_35to64_uninsured = 'B27010_034',
+                               pop_uninsured_18to34 ='B27010_033',
+                               pop_uninsured_35to64 ='B27010_050'
+                              ),
+                 state = 'NY',
+                 year = 2016,
+                 geometry = TRUE)
+```
+
+Proportion of 18-64 year olds who are uninsured
+
+```{R}
+pop_uninsured<- pop_uninsured %>% merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+
+ pop_uninsured <- pop_uninsured %>% 
+   mutate(uninsured_age_bounds = (estimate_pop_uninsured_35to64 + estimate_pop_uninsured_18to34))%>%
+   mutate(uninsured_total = (estimate_total_18to34_uninsured + estimate_total_35to64_uninsured))%>%
+   mutate(proportion_uninsured = (uninsured_age_bounds/uninsured_total))%>%
+   summarize(GEOID, Borough, geometry, uninsured_age_bounds, uninsured_total, proportion_uninsured)
+
+``` 
+ 
+ Replication of the map for Proportion of 18-64 years olds who are uninsured
+ 
+```{R} 
+ ggplot(st_as_sf(pop_uninsured), 
+        aes(fill = proportion_uninsured))+
+   geom_sf()+
+   scale_fill_distiller(type = "seq",
+                        palette = 8,
+                        direction = 1)
+``` 
+ 
+ Median calculation for above proportion 
+ 
+```{R} 
+ median(pop_uninsured$proportion_uninsured, na.rm = TRUE)
+ 
+```
+ 
+ Forward selection prediction model for above proportion of % COVID positivity by Zip code: April 01, 2020
+ 
+```{r}
+pop_uninsured<- pop_uninsured %>% merge(april_01, by = "GEOID")
+
+lm.fit <- lm(positivity_prop ~ proportion_uninsured, data = pop_uninsured)
+lm.fit <- lm(positivity_prop ~ proportion_uninsured)
+
+summary(lm.fit)
+
+```
+
+Getting the Median Income (in million, 2016$) 
+
+```{r}
+
+med_income <- get_acs(geography = "zcta",
+                 variables = c(
+                               med_income = 'B19013_001'
+                               ),
+                 state = 'NY',
+                 year = 2016,
+                 geometry = TRUE)
+``` 
+ 
+ Merging the Median Income data with the zip code of NYC
+```{R} 
+
+med_income<- med_income %>% 
+  merge(zip_codes, by = "GEOID")
+
+``` 
+ 
+ Replication of the map for Median income(in millions, $2016)
+```{R} 
+ggplot(st_as_sf(med_income), 
+        aes(fill = estimate))+
+   geom_sf()+
+   scale_fill_distiller(type = "seq",
+                        palette = 9,
+                        direction = 1)
+``` 
+ 
+ Median calculation of the Median Income
+```{R} 
+
+mean(med_income$estimate, na.rm = TRUE)
+
+```
+
+ Forward selection prediction model for above proportion of % COVID positivity by Zip code: April 01, 2020
+
+```{r}
+med_income<- med_income %>% 
+  merge(april_01, by = "GEOID")
+View(med_income)
+
+lm.fit <- lm(positivity_prop ~ estimate, data = med_income)
+lm.fit <- lm(positivity_prop ~ estimate)
+
+
+summary(lm.fit)
+```
+
+
+
+Getting the population of people self-identifying as White. 
+
+```{r}
+pop_white <- get_acs(geography = "zcta",
+                 variables = c(total_race_pop = 'B02001_001',
+                               prop_white = 'B02001_002'),
+                 state = 'NY',
+                 year = 2016,
+                 geometry = TRUE)
+```
+
+Merging the white population with the NYC ZipCode
+```{R}
+pop_white <- pop_white %>%
+  merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+
+```
+
+Proportion of self-identifying as White
+```{R}
+pop_white <- pop_white %>%
+  mutate(white_pop_prop = estimate_prop_white/estimate_total_race_pop )%>%
+  summarize(GEOID, Borough, geometry, estimate_prop_white, estimate_total_race_pop, white_pop_prop)
+
+```
+
+Replicating the map for proportion self-identifying as White
+```{R}
+ggplot(st_as_sf(pop_white), 
+        aes(fill = white_pop_prop))+
+   geom_sf()+
+   scale_fill_distiller(type = "seq",
+                        palette = 10,
+                        direction = 1)
+```
+
+Median of Proportion of self-identifying as White
+
+```{R}
+median(pop_white$white_pop_prop, na.rm = TRUE)
+
+```
+
+
+
+Forward selection prediction model for above proportion of % COVID positivity by ZipCode: April 01, 2020
+
+```{r}
+pop_white<- pop_white %>% 
+  merge(april_01, by = "GEOID")
+
+lm.fit <- lm(positivity_prop.x ~ white_pop_prop, data = pop_white)
+lm.fit <- lm(positivity_prop.x ~ white_pop_prop)
+
+lm.fit
+
+summary(lm.fit)
+```
+
+
+Getting the population of Households of four or more 
+
+```{r}
+pop_household <- get_acs(geography = "zcta",
+                 variables = c(pop_household_size = 'B11016_001',
+                               pop_hsh_above_three_4 = 'B11016_005',
+                               pop_hsh_above_three_5 ='B11016_006',
+                               pop_hsh_above_three_6 ='B11016_007',
+                               pop_hsh_above_three_7 ='B11016_008'),
+                 state = 'NY',
+                 year = 2016,
+                 geometry = TRUE)
+```
+
+Sorting the population on the basis of NYC ZipCode
+```{r}
+pop_household <- pop_household %>%
+   merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+```
+
+Proportion in housholds of 4 or more. 
+```{r}
+pop_household <- pop_household %>%
+  mutate(total_household_above_three = estimate_pop_hsh_above_three_4+estimate_pop_hsh_above_three_5+estimate_pop_hsh_above_three_6+estimate_pop_hsh_above_three_7)%>%
+  mutate(proportion_household = total_household_above_three/estimate_pop_household_size)%>%
+  summarize(GEOID, Borough, geometry, total_household_above_three, estimate_pop_household_size, proportion_household)
+
+```
+
+Median of Proportion in housholds of 4 or more.
+```{r}
+
+median(pop_household$proportion_household, na.rm = TRUE)
+```
+
+Replicating the map for Proportion in housholds of 4 or more.
+
+```{r}
+ggplot(st_as_sf(pop_household), 
+        aes(fill = proportion_household))+
+   geom_sf()+
+   scale_fill_distiller(type = "seq",
+                        palette = 11,
+                        direction = 1)
+```
+
+Forward selection prediction model for above proportion of % COVID positivity by ZipCode: April 01, 2020
+
+```{r}
+pop_household <- pop_household %>% 
+  merge(april_01, by = "GEOID")
+
+lm.fit <- lm(positivity_prop.x ~ proportion_household, data = pop_household)
+lm.fit <- lm(positivity_prop.x ~ proportion_household)
+
+summary(lm.fit)
+```
+
+Getting the population used bus as public transportation
+
+```{r}
+public_transportation <- get_acs(geography = "zcta",
+                 variables = c(pop_transportation = 'B08301_001',
+                               pop_trans_bus = 'B08301_011'),
+                 state = 'NY',
+                 year = 2016,
+                 geometry = TRUE)
+```
+
+Sorting the population by the NYC ZipCodes. 
+```{r}
+public_transportation <- public_transportation %>%
+  merge(zip_codes, by = "GEOID")%>%
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+```
+
+Proportion of pppulation that commutes by bus 
+```{R}
+public_transportation <- public_transportation %>%
+  mutate(proportion_trans = estimate_pop_trans_bus/estimate_pop_transportation)
+```
+
+Replicating the map for Proportion of population that commutes by bus 
+```{r}
+ggplot(st_as_sf(public_transportation), 
+        aes(fill = proportion_trans))+
+   geom_sf()+
+   scale_fill_distiller(type = "seq",
+                        palette = 13,
+                        direction = 1)
+```
+
+Median of Proportion of population that commutes by bus 
+
+```{r}
+median(public_transportation$proportion_trans, na.rm=TRUE)
+
+
+```
+
+Forward selection prediction model for above proportion of % COVID positivity by ZipCode: April 01, 2020
+
+```{r}
+public_transportation <- public_transportation %>% 
+  merge(april_01, by = "GEOID")
+
+lm.fit <- lm(positivity_prop.x ~ proportion_trans, data = public_transportation)
+lm.fit <- lm(positivity_prop.x ~ proportion_trans)
+
+summary(lm.fit)
+```
+
+Getting the population 65+ years of age
+
+```{r}
+
+pop_above65 <- get_acs(geography = "zcta",
+                 variables = c(pop_above_65 = 'B01001_001',
+                               Mpop_popln_65_66 = 'B01001_020',
+                               Mpop_popln_67_69 ='B01001_021',
+                               Mpop_popln_70_74 ='B01001_022',
+                               Mpop_popln_75_79 ='B01001_023',
+                               Mpop_popln_80_84 ='B01001_024',
+                               Mpop_popln_above_85 ='B01001_025',
+                               Fpop_popln_65_66 ='B01001_044',
+                               Fpop_popln_67_69 ='B01001_045',
+                               Fpop_popln_70_74 ='B01001_046',
+                               Fpop_popln_75_79 = 'B01001_047',
+                               Fpop_popln_80_84 ='B01001_048',
+                               Fpop_popln_above_85 ='B01001_049'),
+                 state = 'NY',
+                 year = 2016,
+                 geometry = TRUE)
+```
+
+Sorting the population by NYC Zipcodes. 
+```{r}
+pop_above65 <- pop_above65 %>%
+  merge(zip_codes, by = "GEOID")%>%
+pivot_wider(names_from = variable, values_from = c(estimate, moe))
+
+```
+
+Proportion of population 65+ years of age
+```{r}
+
+pop_above65 <- pop_above65 %>%
+  
+  mutate(total_popn = estimate_Fpop_popln_65_66+estimate_Fpop_popln_67_69+estimate_Fpop_popln_70_74+estimate_Fpop_popln_75_79+estimate_Fpop_popln_80_84+estimate_Fpop_popln_above_85+estimate_Mpop_popln_65_66+estimate_Mpop_popln_70_74+estimate_Mpop_popln_67_69 + estimate_Mpop_popln_75_79 + estimate_Mpop_popln_80_84 + estimate_Mpop_popln_above_85)%>%
+ 
+  mutate(proportion_above65 = total_popn/estimate_pop_above_65)%>%
+  
+  summarize(GEOID, Borough, geometry, total_popn , estimate_pop_above_65, proportion_above65)
+
+```
+
+Median of Proportion of population 65+ years of age
+```{r}
+
+median(pop_above65$proportion_above65, na.rm=TRUE)
+
+```
+
+Replicating the map for Proportion of population 65+ years of age
+```{r}
+ggplot(st_as_sf(pop_above65), 
+        aes(fill = proportion_above65))+
+   geom_sf()+
+   scale_fill_distiller(type = "seq",
+                        palette = 14,
+                        direction = 1)
+
+```
+
+*Replication of Table 1 for April 01, 2020*
+
+```{r}
+lm.fit <- lm(positivity_prop ~ proportion_household + proportion_uninsured + white_pop_prop + estimate)
+summary(lm.fit)
+
+```
+
+
+
+FIGURE 2 
+
+Loading the SafeGraph data
+```{r}
+load('/data/safegraph/safegraph.Rdata')
+
+safegraph<- safegraph%>%
+  rename(GEOID = postal_code)%>%
+  merge(zip_codes, by = "GEOID")
+
+```
+
+
+Getting the data for February from SafeGraph
+```{r}
+feb_data <- safegraph%>%
+  filter(month(date)==2) %>%
+  arrange(GEOID, date)
+
+```
+
+
+Median of February Data 
+
+```{r}
+med_feb <- feb_data %>%
+  group_by(GEOID)%>%
+  summarize(median = median(avg_visits_per_day))
+
+```
+
+Getting the data for March data 
+
+```{r}
+mar_data <- safegraph%>%
+  filter(month(date)==3) %>%
+  arrange(GEOID, date)
+```
+
+
+Getting the data for April data 
+
+```{r}
+apr_data <- safegraph%>%
+  filter(month(date)==4)%>%
+  arrange(GEOID, date)
+
+```
+
+Mobility of March and April data 
+
+```{r}
+mobility <- mar_data %>%
+  rbind( apr_data)%>%
+  merge(med_feb, by = "GEOID")%>%
+  mutate(prop_of_moblt = (avg_visits_per_day- median)/median)
+
+mobility <- mobility%>%
+  filter(abs(prop_of_moblt) <= 1)
+View(mobility)
+mobility_quantile <- mobility%>%
+  group_by(date)%>%
+  summarise(
+ q3 = quantile(prop_of_moblt, probs = 0.75, na.rm = TRUE),
+  q1 = quantile(prop_of_moblt, probs = 0.25, na.rm = TRUE),
+  median = quantile(prop_of_moblt, probs = 0.5, na.rm = TRUE))
+
+```
+
+
+Replicating the figure 2 for change inmobility by date. 
+
+```{r}
+
+library(lubridate)
+ 
+ggplot()+
+  geom_violin(data = mobility, aes(x = prop_of_moblt,
+                            y = as.factor(date)),
+                  color = "Orange")+
+  geom_pointrange(data = mobility_quantile, aes(xmin = q1, 
+                                         xmax= q3, 
+                                         x = median,
+                                         y = as.factor(date)), 
+                  color= "Red")
+  
+```
+
+
+Replication of Table 2 - April 01, 2020 
+
+No mobility
+
+```{r}
+mobility <- mobility %>% 
+  merge(april_01, by = "GEOID")
+
+
+lm_no_mobility <- lm(positivity_prop ~ proportion_household + proportion_uninsured + white_pop_prop + estimate, data = mobility)
+
+summary(lm_no_mobility)
+```
+
+With mobility 
+```{r}
+
+lm_mobility <- lm(positivity_prop ~ proportion_household + proportion_uninsured + white_pop_prop + estimate+ prop_of_moblt, data = mobility)
+
+
+summary(lm_mobility)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
